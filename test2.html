@@ -1,0 +1,414 @@
+<!doctype html>
+<html class="no-js" lang="">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+        <title></title>
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+        <link rel="stylesheet" href="css/bootstrap.min.css">
+        <link rel="stylesheet" href="css/freelancer.css">
+        <style>
+            body {
+                padding-top: 50px;
+                padding-bottom: 20px;
+            }
+        </style>
+
+    </head>
+    <body>
+    <nav class="navbar navbar-inverse navbar-fixed-top" role="navigation">
+      <div class="container">
+        <div class="navbar-header">
+          <a class="navbar-brand" href="www.julieyeqiu.com/checkers/">Spotify Playlist Maker</a>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Main jumbotron for a primary marketing message or call to action -->
+    <div class="jumbotron">
+      <div class="container">
+        <h1>Spotify Playlist Maker</h1>
+        <p>Create a playlist of your favorite artists! Select your favorite artists, and we'll aggregate their most popular tracks to create a playlist on Spotify of any length you want. </p>
+        <button class="btn btn-success btn-lg" id = 'login_button'>Login</button>
+
+        <div id="search_form">
+          Search Spotify for Artists: <br>
+          <input type="text" name="artist" id="artist_name">
+          <br><br>
+          <button class="btn btn-success btn-md" id="submit-artist" onclick="displayArtists()">Select Artist</button>
+          <button class="btn btn-success btn-md" id="make-playlist" onclick="getSongsForPlaylist()">Ready to Create Playlist</button>
+          <br><br>
+        </div>
+
+        <div id="playlist_length">
+          Number of Songs on Playlist: <br>
+          <input type="text" name="length" id="length">
+          <br><br>
+          <button class="btn btn-success btn-md" id = "make-playlist" onclick="makePlaylist()">Set Playlist Length</button>
+          <br><br>
+        </div>
+
+        <div id="decision">
+          <br><br>
+          <button class="btn btn-success btn-md" id = "create-playlist" onclick="showTitleBox()">Create Playlist</button>
+          <button class="btn btn-success btn-md" id = "start-over" onclick="startOver()">Start Over</button>
+          <br><br>
+        </div>
+
+        <div id="playlist_title">
+          Title Playlist: <br>
+          <input type="text" name="title" id="title">
+          <br><br>
+          <button class="btn btn-success btn-md" id = "title-playlist" onclick="createPlaylist()">Title Playlist</button>
+          <br><br>
+        </div>
+
+        <div id="make_another_playlist">
+          Playlist Created!
+          <br><br>
+          <button class="btn btn-success btn-md" id = "title-playlist" onclick="startOver()">Make Another Playlist</button>
+          <br><br>
+        </div>
+
+        <div id = "artist_list" class="show_artist">
+
+        </div>
+        <br><br>
+
+        <div id = "selected_artists" class="show_artist">
+          <h2>Selected Artists</h2>
+        </div>
+
+        <table id = "selected_tracks" class="table table-striped"></table>
+    </div>
+    </body>
+</html>
+
+<script src="http://code.jquery.com/jquery-1.10.1.min.js"></script>
+<script>
+/*jshint esnext: true*/
+
+var credentials = getHashParams();
+var user_id;
+var access_token = credentials.access_token;
+var artistIdTable = {};
+var selectedArtistIds = [];
+var trackIdTable = {};
+var selectedTrackIds = [];
+var playlistID;
+
+if (access_token) {
+  $('#login_button').hide();
+  $('#search_form').show();
+} else {
+  $('#login_button').show();
+  $('#search_form').hide();
+}
+
+$('#playlist_length').hide();
+$('#playlist_title').hide();
+$('#decision').hide();
+$('#artist_list').hide();
+$('#selected_artists').hide();
+$('#make_another_playlist').hide();
+
+function showTitleBox() {
+  $('#decision').hide();
+  $('#playlist_title').show();
+
+}
+
+
+function displayArtists() {
+  getUserId();
+  $('#artist_list').show();
+  $('#artist_list').empty();
+  var artist = $('#artist_name').val();
+  searchSpotifyByArtist(artist)
+  .success(function(data){
+    populateArtistIdTable(data);
+
+    $('<h2>Search Results</h2>').appendTo('#artist_list');
+
+    for (var id in artistIdTable){
+      if (artistIdTable[id].display) {
+        $('<div id ="'+id+'"class="chosen-artist"><img src='+ artistIdTable[id].image.url + ' height="150" width="150">' + '<p>'+ artistIdTable[id].name + '</p></div>').appendTo('#artist_list').click(chooseArtist(id));
+      }
+  }
+  });
+}
+
+function setDisplayFalse(){
+   for (var id in artistIdTable){
+     artistIdTable[id].display = false;
+   }
+}
+
+function chooseArtist(id){
+  return function(event) {
+    selectedArtistIds.push(id);
+    $('#selected_artists').show();
+    $('#'+id).detach().appendTo($('#selected_artists'));
+    $('#artist_list').empty();
+    setDisplayFalse();
+  };
+}
+
+function getSongsForPlaylist(){
+    $('#artist_list').empty();
+    artistIterator = makeIterator(selectedArtistIds);
+    requestTopTracks(artistIterator);
+    $('#search_form').hide();
+    $('#playlist_length').show();
+}
+
+function makePlaylist() {
+    $('#playlist_length').hide();
+    $('#decision').show();
+    $('#selected_artists').empty();
+    length = $('#length').val();
+    generateRandomPlaylist(length);
+    $('<tr><td><b>Song</b></td>'+'<td><b>Artist</b></td></tr>').appendTo('#selected_tracks');
+    for (var trackId of selectedTrackIds) {
+       $('<tr><td>'+trackIdTable[trackId].name+'</td>'+'<td>'+trackIdTable[trackId].artist+'</td></tr>').appendTo('#selected_tracks');
+    }
+}
+
+function startOver() {
+  artistIdTable = {};
+  selectedArtistIds = [];
+  trackIdTable = {};
+  selectedTrackIds = [];
+  $('#search_form').show();
+  $('#playlist_length').hide();
+  $('#playlist_title').hide();
+  $('#decision').hide();
+  $('#selected_tracks').empty();
+  $('#artist_list').hide();
+  $('#selected_artists').hide();
+  $('#make_another_playlist').hide();
+}
+
+function getHashParams() {
+  var hashParams = {};
+  var e, r = /([^&;=]+)=?([^&;]*)/g,
+      q = window.location.hash.substring(1);
+  while ( e = r.exec(q)) {
+     hashParams[e[1]] = decodeURIComponent(e[2]);
+  }
+  return hashParams;
+}
+
+function getUserId() {
+    var url = 'https://api.spotify.com/v1/me';
+    var params = {};
+    callSpotify(url, params).success(function(user){
+      user_id = user.id;
+    })
+    ;
+}
+
+function loginToSpotify() {
+  var client_id = '9afdce8119894860a1b1a8dd284b93fb';
+  var redirect_uri = 'http://www.julieyeqiu.com/checkers/';
+  var scope = 'playlist-read-private playlist-modify-public playlist-modify-private user-read-private user-read-email';
+  var url = 'https://accounts.spotify.com/authorize';
+      url += '?response_type=token';
+      url += '&client_id=' + encodeURIComponent(client_id);
+      url += '&scope=' + encodeURIComponent(scope);
+      url += '&redirect_uri=' + encodeURIComponent(redirect_uri);
+  window.location = url;
+}
+
+
+function callSpotify(url, params) {
+  return $.ajax(url, {
+    url: url,
+    dataType: 'json',
+    data: params,
+    headers: {
+      'Authorization': 'Bearer ' + access_token
+    }
+  });
+}
+
+function postSpotify(url, params) {
+  return $.ajax(url, {
+    url: url,
+    method: "POST",
+    dataType: 'json',
+    data: JSON.stringify(params),
+    headers: {
+      'Authorization': 'Bearer ' + access_token,
+      'Content-Type': 'application/json'
+    }
+  });
+}
+
+function searchSpotifyByArtist(artist) {
+  url = 'https://api.spotify.com/v1/search';
+  params = {
+    q: artist,
+    type: 'artist'
+  };
+  return callSpotify(url, params);
+}
+
+function populateArtistIdTable(data) {
+  var image_url = "";
+
+  for (var element of data.artists.items) {
+    if (element.images[0]) {
+      image_url = element.images[0];
+    }
+    artistIdTable[element.id] = {name : element.name, image: image_url, display : true};
+  }
+}
+
+function selectArtistById(artistId) {
+  selectedArtistIds.push(artistId);
+}
+
+function removeArtistById(artistId) {
+
+}
+
+function requestTopTracksByArtistId(artistId) {
+  url = "https://api.spotify.com/v1/artists/"+artistId+"/top-tracks";
+  params = {
+    country:"US"
+  };
+  return callSpotify(url, params);
+}
+
+function requestTopTracks(iterator, callback){
+  var currentIteration = iterator.next();
+  var artistId = currentIteration.value || "";
+
+  if (currentIteration.done === false) {
+    requestTopTracksByArtistId(artistId)
+    .success(
+      function(topTracksResponseData){
+        populateTrackIdTable(artistId, topTracksResponseData);
+      }
+    )
+    .then(
+      requestTopTracks(iterator), function() {alert("error");}
+    );
+  }
+}
+
+function populateTrackIdTable(artistId, topTracksResponseData) {
+  for (var track of topTracksResponseData.tracks){
+    trackIdTable[track.uri] = {'artist': artistIdTable[artistId].name, 'name': track.name};
+  }
+}
+
+function generateRandomPlaylist(num) {
+   var array = topTracksAllArtistsIds;
+   for (var i=array.length-1; i>0; i--) {
+     var j = Math.floor(Math.random()*(i+1));
+     var temp = array[i];
+     array[i] = array[j];
+     array[j] = temp;
+   }
+   for (var k=0; k<num && k<array.length; k++) {
+     finalPlaylist.push(array[k]);
+   }
+}
+
+function test(artist) {
+  searchSpotifyByArtist(artist)
+  .success(
+    function(data){
+
+      populateArtistIdTable(data);
+
+      for (var id in artistIdTable) {
+        selectArtistById(id);
+      }
+
+      var artistIterator = makeIterator(selectedArtistIds);
+
+      requestTopTracks(artistIterator);
+    }
+  );
+}
+
+function makeIterator(array){
+  var nextIndex = 0;
+
+  return {
+    next: function(){
+      return nextIndex < array.length ?
+      {value: array[nextIndex++], done: false} :
+      {done : true};
+    }
+  };
+}
+
+function getAllTopTracksIds() {
+  for (var album of topTracksAllArtistsTable) {
+    var tracks = album.responseJSON.tracks;
+    for (var track of tracks) {
+      topTracksAllArtistsIds.push(track.id);
+    }
+  }
+}
+
+function generateRandomPlaylist(num) {
+    array = Object.keys(trackIdTable);
+   for (var i=array.length-1; i>0; i--) {
+     var j = Math.floor(Math.random()*(i+1));
+     var temp = array[i];
+     array[i] = array[j];
+     array[j] = temp;
+   }
+
+   for (var k=0; k<num && k<array.length; k++) {
+     selectedTrackIds.push(array[k]);
+   }
+}
+
+function createPlaylist() {
+  var title = $('#title').val();
+  $("playlist_title").hide();
+
+  var url = "https://api.spotify.com/v1/users/"+user_id+"/playlists";
+  var params = {
+    name: title
+  };
+
+  postSpotify(url, params).success(
+    function(data){
+      playlistID = data.id;
+      addSongsToPlaylist().success(
+        function(data){
+        console.log(data);
+        $('#make_another_playlist').show();
+      });
+    }).error(
+    function(){
+      alert("error");
+    });
+
+
+ }
+
+
+function addSongsToPlaylist() {
+  url = "https://api.spotify.com/v1/users/" + user_id + "/playlists/" + playlistID + "/tracks";
+  params = {
+    uris: selectedTrackIds
+  };
+  return postSpotify(url, params);
+}
+
+
+document.getElementById('login_button').addEventListener('click', function(){
+    loginToSpotify();
+  });
+
+</script>

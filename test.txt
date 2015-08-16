@@ -1,0 +1,1 @@
+Watermelon is reading a txt file!

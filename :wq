@@ -22,8 +22,8 @@ class App:
         print '**POST DATA**'
         request_body_size = int(environ.get('CONTENT_LENGTH', 0))
         request_body = environ['wsgi.input'].read(request_body_size)
-        data = cgi.parse_qs(request_body)
-        print data
+        d = cgi.parse_qs(request_body)
+        print d
         #fp = env['wsgi.input']
         #data = cgi.FieldStorage(fp=fp, environ=env)
         #print data
