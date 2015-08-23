@@ -1,3 +1,10 @@
+from StringIO import StringIO
+from urlparse import urlparse
+import threading
+import socket
+import struct
+
+
 class ServerAdapter(object):
     def __init__(self, host='localhost', port=8000, **kwargs):
         self.host = host
@@ -12,15 +19,107 @@ class ServerAdapter(object):
 
 
 class WSGIRefServer(ServerAdapter):
+    """ Python's built-in wsgiref server """
     def run(self, handler):
         from wsgiref.simple_server import make_server
         srv = make_server(self.host, self.port, handler)
         srv.serve_forever()
 
 
-class SocketServer(ServerAdapter):
+class Connection:
+    """ Establishes a connection to the client for the watermelon server """
+    def __init__(self, socket, wsgi_handler):
+        self.socket = socket
+        self.wsgi_handler = wsgi_handler
+
+    def timeout(self, timeout=10):
+        sec = int(timeout)
+        usec = int((timeout - sec) * 1e6)
+        timeval = struct.pack('ll', sec, usec)
+        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVTIMEO, timeval)
+
+    def start_response(self, status, headers):
+        self.socket.sendall('HTTP/1.1 ')
+        self.socket.sendall(status+'\n')
+        for key, value in headers:
+            if key.lower() == 'connection':
+                continue
+            if key.lower() == 'content-length':
+                self.content_length_set = True
+            self.socket.sendall(key+': '+value+'\n')
+        self.socket.sendall('Connection: keep-alive\n')
+
+    def serve(self):
+        self.timeout() 
+        try:
+            while True: 
+                self.content_length_set = False
+                env = self.get_env()
+                output = self.wsgi_handler(env, self.start_response)
+                if not self.content_length_set:
+                    content_length = -1
+                    if isinstance(output, str):
+                        content_length = str(len(output))
+                    if hasattr(output, '__len__') and len(output) == 1:
+                        for item in output:
+                            content_length = str(len(item))
+                    if content_length != -1:
+                        self.socket.sendall('Content-Length: '+content_length+'\n')
+                self.socket.sendall('\n')
+                self.socket.sendall(output)
+                if not self.content_length_set and content_length == -1:
+                    break
+        finally:
+            self.socket.close()
+            
+    def parse_request(self, first_line):
+        first_line = first_line.rstrip('\r\n')
+        return first_line.split()
+    
+    def socket_readline(self):
+        c = ''
+        line = ''
+        while c != '\n':
+            c = self.socket.recv(1)
+            line += c
+        return line
+
+    def recv_exact(self, count):
+        line = ""
+        while count != 0:
+            chunk = self.socket.recv(count)
+            line += chunk
+            count -= len(chunk)
+        return line
+
+    def get_env(self):
+        env = {}
+        line = self.socket_readline()
+        request_method, url, request_version = self.parse_request(line)
+        result = urlparse(url) 
+        env['REQUEST_METHOD'] = request_method
+        env['PATH_INFO'] = result.path
+        env['QUERY_STRING'] = result.query
+        env['SERVER_PROTOCOL'] = request_version
+
+        while True:
+            line = self.socket_readline().rstrip('\r\n') 
+            if line == "":
+                content_length = int(env.get('HTTP_CONTENT-LENGTH', 0))
+                line = self.recv_exact(content_length) 
+                env['wsgi.input'] = StringIO(line)
+                break
+            else:
+                line = line.split(':', 1)
+                env['HTTP_'+line[0].upper()] = line[1]
+        print env
+        return env
+
+
+
+class WatermelonServer(ServerAdapter):
+ 
     def run(self, wsgi_handler):
-        import socket
         s = socket.socket()
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind((self.host, self.port))
@@ -28,41 +127,7 @@ class SocketServer(ServerAdapter):
         
         while True:
             c, addr = s.accept()
-            request = c.recv(1000)
-            env = self.get_env(request)
-            response = wsgi_handler(env, self.start_response)
-            c.sendall(response)
-            #response = return_response() 
-            #print response
-            #c.send(response)
-            
-            c.close()
-    
-    def start_response(self, status, response_headers):
-        pass
-    
-    def parse_request(self, request):
-        msg = request[:]
-        msg = msg.split('\r\n')
-        first_line = msg[0].split(' ')
-        request_line = request.splitlines()[0]
-        request_line = request_line.rstrip('\r\n')
-        return request_line.split() 
-    
-    def get_env(self, request):
-        env = {}
-        request_method, path, request_version = self.parse_request(request)
-        env['REQUEST_METHOD'] = request_method
-        env['PATH_INFO'] = path
-        env['SERVER_PROTOCOL'] = request_version
-        
-        print env
-        return env
-
-class HTTPConnector(ServerAdapter):
-    def run(self):
-        from socket import socket
-        s = socket()
-        s.connect((self.host, self.port))
-        return s
-
+            conn = Connection(c, wsgi_handler) 
+            t = threading.Thread(target=conn.serve, args=()) 
+            t.setDaemon(True)
+            t.start()
