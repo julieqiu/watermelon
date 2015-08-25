@@ -1,13 +1,13 @@
 import os
 import re
 import cgi
-import pdb
 from server import WatermelonServer, WSGIRefServer
 import threading
 import traceback
 from template import process_template
 import reloader
 import config
+import mimetypes
 
 HTTP_CODES = {
     200: 'OK', 
@@ -63,8 +63,6 @@ class App:
             response = Response()
             response.status_code = 500
             response.txt = traceback.format_exc().replace('\n','<br>')
-        print response.status
-        print type(response.status)
         start_response(response.status, response.headers)
         return response.txt
 
@@ -74,15 +72,24 @@ class App:
             return func
         return route_decorator
    
-    def cache_static_files(self):
-        files = os.listdir(STATIC_FOLDER)
-        print files
-        for f in files:
-            if f[-4:] == '.css':
-                self.static_cache.add_template(STATIC_FOLDER+'/'+f)
+    def cache_static_files(self, static_folder=STATIC_FOLDER):
+        contents = os.listdir(static_folder)
+        for f in contents:
+            item = static_folder+'/'+f
+            mimetype, encoding = mimetypes.guess_type(item)
+            if mimetype:
+                self.static_cache.add_template(item, mimetype)
+            elif '.' not in item:
+                self.cache_static_files(item)
+            else:
+                raise WatermelonException('Static File of Unknown Type')
     
     def static_func(self, filename):
-        return self.static_cache.render_from_cache(STATIC_FOLDER+'/'+filename)
+        response = Response()
+        response.txt = self.static_cache.render_from_cache(STATIC_FOLDER+'/'+filename)
+        mimetype, encoding = mimetypes.guess_type(filename)
+        response.add_header_item('Content-Type', mimetype)
+        return response
 
     def add_static(self):
         self.cache_static_files()
@@ -236,19 +243,22 @@ class File_Cache:
         mtime = os.stat(filename).st_mtime
         self.cache[filename] = (template, mtime)
     
-    def add_template(self, filename):
-        txt = self.read_template(filename)
-        template = process_template(txt)
+    def add_template(self, filename, mimetype='text'):
+        template = self.read_template(filename)
+        if 'image' not in mimetype:
+            template = process_template(template)
         self.cache_template(filename, template)
         return template
 
     def render_from_cache(self, filename, scope={}):
         f_mtime = os.stat(filename).st_mtime
-        print 'f_time', f_mtime
         template, mtime = self.template_cache_get(filename)
         if not template and f_mtime != mtime:
             template = self.add_template(filename)
-        return template.render(scope)
+        if isinstance(template, str):
+            return template
+        else:
+            return template.render(scope)
 
 
 file_cache = File_Cache()

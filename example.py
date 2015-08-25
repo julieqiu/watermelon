@@ -9,7 +9,6 @@ def welcome():
 
 @app.route('/dynamic/<name>')
 def say_name(name):
-    print 'hello!'
     return "Hi there "+name+"!"
 
 @app.route('/text')
@@ -39,8 +38,8 @@ def submitted():
 @app.route('/make_response')
 def make_response():
     response = Response()
-    response.txt = 'Hello'
-    response.add_header_item('Foo','Bar')
+    response.txt = open('static/giphy.gif').read()
+    response.add_header_item('Content-Type', 'image/gif')
     return response
 
 @app.route('/stack')
