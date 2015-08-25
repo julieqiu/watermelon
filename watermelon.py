@@ -7,6 +7,7 @@ import threading
 import traceback
 from template import process_template
 import reloader
+import config
 
 HTTP_CODES = {
     200: 'OK', 
@@ -14,6 +15,16 @@ HTTP_CODES = {
     500: 'INTERNAL SERVER ERROR'
 }
 
+try:
+    STATIC_FOLDER = config.FOLDER_STATIC
+except NameError:
+    STATIC_FOLDER = '.'
+
+try: 
+    TEMPLATE_FOLDER = config.FOLDER_TEMPLATE
+except NameError:
+    TEMPLATE_FOLDER = '.'
+    
 # Ensures that values for each request
 # are specific to that request
 request = threading.local()
@@ -37,6 +48,8 @@ class App:
     def __init__(self):
         self.simple_routes = {}
         self.variable_routes = {}
+        self.static_cache = File_Cache()
+        self.add_static()
 
     def WSGIhandler(self, env, start_response):
         setup_thread(request, Request(env))
@@ -60,6 +73,20 @@ class App:
             self.add_route(path, func, **kwargs)
             return func
         return route_decorator
+   
+    def cache_static_files(self):
+        files = os.listdir(STATIC_FOLDER)
+        print files
+        for f in files:
+            if f[-4:] == '.css':
+                self.static_cache.add_template(STATIC_FOLDER+'/'+f)
+    
+    def static_func(self, filename):
+        return self.static_cache.render_from_cache(STATIC_FOLDER+'/'+filename)
+
+    def add_static(self):
+        self.cache_static_files()
+        self.add_route('/static/<filename>', self.static_func)
 
     def make_path(self, path):
         path = re.sub(r'<(\w+)>', r'(?P<\1>[^/]+)$', path)
@@ -103,7 +130,7 @@ class App:
                 route_response = value(**args)
                 return self.check_response_type(route_response)
          
-        raise NotFound()
+        raise NotFound('Route not found')
 
     def run(self, server=WatermelonServer, host='localhost', port=8000, reload_on=True):
         """ Runs watermelon as a web server, with its own built-in server as a default
@@ -117,7 +144,6 @@ class App:
         else:
             srv.run(self.WSGIhandler)
         
-
 
 class Request:
     """
@@ -187,7 +213,7 @@ def setup_thread(holder, request):
         setattr(holder, name, value)
 
 
-class Template:
+class File_Cache:
     """ 
     Creates a cache for all the templates being read. When a template needs
     to be rendered in the response, watermelon will first check if this template
@@ -195,7 +221,7 @@ class Template:
     """
 
     def __init__(self):
-        self.template_cache = {}
+        self.cache = {}
 
     def read_template(self, filename):
         tmp = open(filename)
@@ -204,26 +230,36 @@ class Template:
         return txt
 
     def template_cache_get(self, filename):
-        return self.template_cache.get(filename, (None, None))
+        return self.cache.get(filename, (None, None))
 
-    def cache_template(self, filename, template, mtime):
-        self.template_cache[filename] = (template, mtime)
-        
-    def render(self, filename, scope):
+    def cache_template(self, filename, template):
+        mtime = os.stat(filename).st_mtime
+        self.cache[filename] = (template, mtime)
+    
+    def add_template(self, filename):
+        txt = self.read_template(filename)
+        template = process_template(txt)
+        self.cache_template(filename, template)
+        return template
+
+    def render_from_cache(self, filename, scope={}):
         f_mtime = os.stat(filename).st_mtime
         print 'f_time', f_mtime
         template, mtime = self.template_cache_get(filename)
         if not template and f_mtime != mtime:
-            txt = self.read_template(filename)
-            template = process_template(txt, scope)
-            self.cache_template(filename, template, mtime)
+            template = self.add_template(filename)
         return template.render(scope)
 
 
-template_cache = Template()
-def render_template(filename, **kwargs):
+file_cache = File_Cache()
+
+def render_template(filename, file_type=None, **kwargs):
     """ Reads and renders a file using the watermelon template-engine """
     scope = kwargs
-    template = template_cache.render(filename, scope)
-    print template_cache.template_cache
+    scope['url_for'] = url_for
+    template_name = TEMPLATE_FOLDER + '/'+ filename
+    template = file_cache.render_from_cache(template_name, scope)
     return template
+
+def url_for(static_url_path, filename):
+    return static_url_path + '/' + filename

@@ -1,0 +1,19 @@
+<html>
+        <body>
+            <img src='/static/giphy.gif'>
+                {{ Title }}
+
+
+                {% for key, value in my_dict.items() %}
+                <p>{{ key }} = {{ value }}</p>
+                {% endfor %}
+                {% if not Title %}
+                <p>foo</p>
+                {% elif another_title %}
+                <p> success </p>
+
+                {% else %}
+                <p>bar</p>
+                {% endif %}
+        </body>
+</html>

@@ -1,17 +1,15 @@
 import sys, os, subprocess, threading, time
 
 def reloader_loop():
-    print '***Running reloader_loop***'
+    print '*RELOADER LOOP*'
     while True:
         executable = sys.executable
         args = sys.argv
         environ = os.environ.copy()
         print 'Executable: ', executable
         print 'Args: ', args
-        print 'Environ: ', environ
-        environ['watermelon'] = 'True'
-        print 'Environ2: ', environ
         print '[executable] + args: ', [executable] + args
+        environ['watermelon'] = 'True'
         exit_code = subprocess.call([executable] + args, env=environ)
         print 'Exit_code: ', exit_code
         if exit_code == 3:
@@ -19,26 +17,23 @@ def reloader_loop():
         else:
             return exit_code
 
-
 def run_with_reloader(func, *args):
-    print '***Running run_with_reloader***'
-    print 'environment contains watermelon', os.environ.get('watermelon')
+    print '*RUN LOOP*'
     if os.environ.get('watermelon'):
-        print 'func: ', func
-        print 'args: ', args
+        print 'creating threads'
         t = threading.Thread(target=func, args=args)
         t.setDaemon(True)
         t.start()
         reload_check()
     else:
-        print 'reloader_loop(): ', reloader_loop()
+        print 'ENTERING RELOADER LOOP'
         reloader_loop()
 
 
 def reload_check():
-    print '***Running reload_check***'
+    print '*RELOAD CHECKING*'
     files_by_mtime = {}
-    while True: 
+    while True:
         for module in list(sys.modules.values()):
             if hasattr(module, '__file__'):
                 filename = module.__file__
@@ -53,7 +48,8 @@ def reload_check():
                 value = files_by_mtime.get(filename)
                 if value:
                     if value != mtime:
-                        print 'value != mtime on ', filename
+                        print 'EXITING'
                         sys.exit(3)
                 else:
                     files_by_mtime[filename] = mtime
+

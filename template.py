@@ -4,15 +4,13 @@ VAR_TOKEN_START = '{{'
 VAR_TOKEN_END = '}}'
 BLOCK_TOKEN_START = '{%'
 BLOCK_TOKEN_END = '%}'
-REGEX_TOKEN = re.compile(r'(%s.*?%s|%s.*?%s)' %(VAR_TOKEN_START, VAR_TOKEN_END, 
+REGEX_TOKEN = re.compile(r'(%s.*?%s|%s.*?%s\n?)' %(VAR_TOKEN_START, VAR_TOKEN_END, 
                                                 BLOCK_TOKEN_START, BLOCK_TOKEN_END))
 VAR_SPLIT_TOKEN = re.compile(r'%s\s*(.+?)\s*%s' %(VAR_TOKEN_START, VAR_TOKEN_END))
-FOR_SPLIT_TOKEN = re.compile(r'%s\s*for\s+(.*\S+)\s+in\s+(.+?)\s*%s' %(BLOCK_TOKEN_START, BLOCK_TOKEN_END))
-COND_SPLIT_TOKEN = re.compile(r'%s\s*(if|elif|else)(?:\s+(.+))?\s*%s' %(BLOCK_TOKEN_START, BLOCK_TOKEN_END))
-END_TOKEN = re.compile(r'%s\s*end(if|for)\s*%s' %(BLOCK_TOKEN_START, BLOCK_TOKEN_END))
-
-# {% if a == "%}" %}
-# {{ foo + "}}" }}
+FOR_SPLIT_TOKEN = re.compile(r'%s\s*for\s+(.*\S+)\s+in\s+(.+?)\s*%s\n?' %(BLOCK_TOKEN_START, BLOCK_TOKEN_END))
+COND_SPLIT_TOKEN = re.compile(r'%s\s*(if|elif|else)(?:\s+(.+))?\s*%s\n?' %(BLOCK_TOKEN_START, BLOCK_TOKEN_END))
+END_TOKEN = re.compile(r'\n?%s\s*end(if|for)\s*%s' %(BLOCK_TOKEN_START, BLOCK_TOKEN_END))
+FUNC_SPLIT_TOKEN = re.compile(r'%s\s*(.+?\))\s*%s' %(VAR_TOKEN_START, VAR_TOKEN_END))
 
 class TemplateError(Exception):
     pass
@@ -35,13 +33,24 @@ class TextNode(Node):
 class VarNode(Node):
     def __init__(self, val):
         Node.__init__(self, val) 
-
+    
     def render(self, scope):
         val = scope.get(self.val, None)
         if val:
             return str(val)
         else:
             raise TemplateError
+
+class FuncNode(Node):
+    def __init__(self, val):
+        Node.__init__(self, val)
+
+    def render(self, scope):
+        try:
+            result = eval(self.val, scope)
+            return str(result)
+        except:
+            raise TemplateError ('Problem with the Function')
 
 
 class LstNode(Node):
@@ -70,7 +79,7 @@ class ForNode(LstNode):
         variables = self.variables.split(',')
         variables = [v.strip() for v in variables]
         txt = ''
- 
+
         for value in iterable:
             if len(variables) == 1:
                 scope[variables[0]] = value
@@ -80,6 +89,7 @@ class ForNode(LstNode):
 
             for child in self.children:
                 txt += child.render(scope)
+
         return txt
 
 
@@ -130,16 +140,23 @@ class Stack:
         return len(self.stack)
 
 
-def process_template(template, scope):
+def process_template(template):
     nodes_lst = REGEX_TOKEN.split(template)
     root_lst = LstNode()
     stk = Stack()
     stk.push(root_lst)
     for item in nodes_lst:
         if re.match(VAR_TOKEN_START, item):
-            item = VAR_SPLIT_TOKEN.match(item).group(1) 
-            node = VarNode(item)
-            stk.top().add_child(node)
+            func_token = FUNC_SPLIT_TOKEN.match(item)
+            if func_token:
+                func = func_token.group(1)
+                print func
+                node = FuncNode(func)
+                stk.top().add_child(node)
+            else:
+                item = VAR_SPLIT_TOKEN.match(item).group(1) 
+                node = VarNode(item)
+                stk.top().add_child(node)
         elif re.match(BLOCK_TOKEN_START, item):
             for_token = FOR_SPLIT_TOKEN.match(item)
             if for_token:
