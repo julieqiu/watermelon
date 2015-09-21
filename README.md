@@ -15,5 +15,5 @@ Watermelon's functionalities include:
 - Automatic reloading of server when a template is changed
 
 ##How to use it
-    See example.py
+See example.py
 
